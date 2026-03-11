@@ -5,195 +5,175 @@ import plotly.graph_objects as go
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+import numpy as np
 
 # --- CONFIGURARE PAGINĂ ---
-st.set_page_config(page_title="Creier Digital PRO v2", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Creier Digital ULTRA v3", layout="wide", page_icon="🧠")
 
-# --- SISTEM DE LOGIN (DIN SECRETS) ---
+# --- CSS PERSONALIZAT PENTRU LOOK PROFESIONAL ---
+st.markdown("""
+    <style>
+    .main { background-color: #0e1117; }
+    .stMetric { background-color: #161b22; padding: 15px; border-radius: 10px; border: 1px solid #30363d; }
+    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #238636; color: white; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- SISTEM SECURITATE ---
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
-    if st.session_state["password_correct"]:
-        return True
+    if st.session_state["password_correct"]: return True
 
-    st.markdown("""
-        <style>
-        .login-box { padding: 2rem; border-radius: 10px; background-color: #161b22; border: 1px solid #30363d; text-align: center; }
-        </style>
-        <div class="login-box">
-            <h1>🔒 Terminal Securizat</h1>
-            <p>Introdu cheia de acces pentru a activa algoritmii.</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    password_input = st.text_input("Parola:", type="password")
+    st.title("🔐 Terminal Biometric")
+    pwd = st.text_input("Introdu Cheia de Acces:", type="password")
     if st.button("AUTENTIFICARE"):
-        if password_input == st.secrets["auth"]["password"]:
+        if pwd == st.secrets["auth"]["password"]:
             st.session_state["password_correct"] = True
             st.rerun()
-        else:
-            st.error("❌ Acces respins. Parolă incorectă.")
+        else: st.error("❌ Acces Respins")
     return False
 
-if not check_password():
-    st.stop()
+if not check_password(): st.stop()
 
-# --- CONECTARE CLOUD (GOOGLE SHEETS) ---
-def conectare_google_sheets():
+# --- CONECTARE GOOGLE SHEETS ---
+def get_gsheet():
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        if "google_credentials" in st.secrets:
-            creds_dict = dict(st.secrets["google_credentials"])
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        else:
-            creds = ServiceAccountCredentials.from_json_keyfile_name("google_key.json", scope)
+        creds_dict = dict(st.secrets["google_credentials"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
-        sheet = client.open("Jurnal CFD").sheet1
-        return sheet
-    except Exception as e:
-        st.sidebar.error(f"Eroare Cloud: {e}")
-        return None
+        return client.open("Jurnal CFD").sheet1
+    except: return None
 
-# --- SIDEBAR: PARAMETRI ---
+# --- SIDEBAR - CONTROL TOTAL ---
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2092/2092663.png", width=80)
-    st.header("🕹️ Panou Control")
-    
-    mod_selectie = st.radio("Sursă Date:", ["Listă Predefinită", "Căutare Manuală"])
-    
-    lista_companii = [
-        "Nvidia - NVDA", "Tesla - TSLA", "Apple - AAPL", "Microsoft - MSFT", 
-        "Amazon - AMZN", "Sea Limited - SE", "MicroStrategy - MSTR", 
-        "Bitcoin - BTC-USD", "Ethereum - ETH-USD", "Meta - META", "Google - GOOGL"
-    ]
-    
-    if mod_selectie == "Listă Predefinită":
-        alegere = st.selectbox("Selectează Asset:", sorted(lista_companii))
-        ticker = alegere.split(" - ")[1]
-        nume_afisat = alegere.split(" - ")[0]
+    st.header("⚙️ Configurare Trade")
+    mod = st.radio("Sursă:", ["Listă", "Manual"])
+    if mod == "Listă":
+        assets = ["NVDA", "TSLA", "AAPL", "MSFT", "AMZN", "SE", "MSTR", "BTC-USD", "ETH-USD", "META", "GOOGL", "AMD"]
+        ticker = st.selectbox("Alege Asset:", sorted(assets))
     else:
-        ticker = st.text_input("Simbol (ex: TSLA, GOLD):").upper().strip()
-        nume_afisat = ticker
+        ticker = st.text_input("Simbol Manual:", value="TSLA").upper()
 
     st.divider()
-    suma_cash = st.number_input("Capital (£):", value=100.0, step=50.0)
-    directie = st.radio("Strategie:", ["CUMPĂR (Long)", "VÂND (Short)"])
-    levier = st.slider("Levier (Leverage):", 1, 30, 5)
+    cash = st.number_input("Capital (£):", value=100.0, step=10.0)
+    levier = st.slider("Levier (Multiplier):", 1, 30, 5)
+    directie = st.radio("Direcție Piață:", ["CUMPĂR (LONG)", "VÂND (SHORT)"])
     
-    if st.button("DECONECTARE"):
+    if st.button("🚪 LOG OUT"):
         st.session_state["password_correct"] = False
         st.rerun()
 
-# --- LOGICA DE ANALIZĂ ȘI ESTIMARE AI ---
-if ticker:
-    try:
-        df = yf.download(ticker, period="6mo", interval="1d", progress=False)
-        if df.empty:
-            st.warning("⚠️ Simbolul nu a fost găsit.")
-        else:
-            if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
-            
-            # 1. Indicatori Tehnici
-            pret_acum = float(df['Close'].iloc[-1])
-            # RSI
-            delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            df['RSI'] = 100 - (100 / (1 + rs))
-            rsi_acum = df['RSI'].iloc[-1]
-            
-            # Trend (SMA 20 vs SMA 50)
-            df['SMA20'] = df['Close'].rolling(window=20).mean()
-            df['SMA50'] = df['Close'].rolling(window=50).mean()
-            sma20 = df['SMA20'].iloc[-1]
-            sma50 = df['SMA50'].iloc[-1]
-            
-            # Volatilitate
-            volatilitate = ((df['High'] - df['Low']) / df['Close'] * 100).tail(14).mean()
-            
-            # 2. ALGORITM ESTIMARE AI
-            scor_buy = 50
-            if rsi_acum < 30: scor_buy += 20  # Oversold
-            if rsi_acum > 70: scor_buy -= 20  # Overbought
-            if pret_acum > sma20: scor_buy += 10 # Trend pozitiv
-            if sma20 > sma50: scor_buy += 10 # Golden Cross context
-            
-            probabilitate = scor_buy if "CUMPĂR" in directie else (100 - scor_buy)
-            
-            # 3. INTERFAȚĂ REZULTATE
-            st.title(f"📊 Analiză AI: {nume_afisat}")
-            
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Preț Curent", f"${pret_acum:.2f}")
-            m2.metric("RSI (14)", f"{rsi_acum:.1f}")
-            m3.metric("Volatilitate", f"{volatilitate:.2f}%")
-            m4.metric("Probabilitate Succes", f"{probabilitate}%")
+# --- MOTORUL ANALITIC (BACKEND) ---
+try:
+    df = yf.download(ticker, period="6mo", interval="1d", progress=False)
+    if df.empty: st.error("Simbol invalid!")
+    else:
+        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+        
+        # INDICATORI TEHNICI COMPLECȘI
+        close = df['Close']
+        high = df['High']
+        low = df['Low']
+        
+        # 1. RSI
+        delta = close.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rsi = 100 - (100 / (1 + gain/loss))
+        rsi_val = rsi.iloc[-1]
 
-            # Mesaj AI
-            culoare_ai = "#00ff00" if probabilitate > 55 else "#ff4b4b"
-            st.markdown(f"""
-                <div style="background-color:#161b22; padding:20px; border-radius:10px; border-left: 10px solid {culoare_ai};">
-                    <h2 style="margin:0;">🤖 Verdict AI: {probabilitate}% șanse pentru {directie}</h2>
-                    <p style="color:gray;">Bazat pe RSI, SMA20/50 și volatilitatea curentă a pieței.</p>
-                </div>
-            """, unsafe_allow_html=True)
+        # 2. Bollinger Bands (Volatilitate & Overbought/Oversold)
+        sma20 = close.rolling(window=20).mean()
+        std20 = close.rolling(window=20).std()
+        upper_bb = sma20 + (std20 * 2)
+        lower_bb = sma20 - (std20 * 2)
 
-            # 4. GRAFIC INTERACTIV
-            fig = go.Figure()
-            fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Preț"))
-            fig.add_trace(go.Scatter(x=df.index, y=df['SMA20'], line=dict(color='yellow', width=1), name="SMA 20"))
-            fig.update_layout(template="plotly_dark", height=450, xaxis_rangeslider_visible=False)
-            st.plotly_chart(fig, use_container_width=True)
+        # 3. ATR (Volatilitate Reală)
+        tr = pd.concat([high - low, abs(high - close.shift()), abs(low - close.shift())], axis=1).max(axis=1)
+        atr = tr.rolling(window=14).mean().iloc[-1]
+        
+        pret_acum = float(close.iloc[-1])
+        volatilitate_pct = (atr / pret_acum) * 100
 
-            # 5. CALCULATOR MANAGEMENT RISC
-            st.divider()
-            st.subheader("🛠️ Setări Tranzacție")
+        # --- LOGICA AI DE PROBABILITATE ---
+        scor = 50
+        # Reguli Long
+        if rsi_val < 35: scor += 15
+        if pret_acum < lower_bb.iloc[-1]: scor += 15
+        if pret_acum > sma20.iloc[-1]: scor += 10
+        # Reguli Short
+        if rsi_val > 65: scor -= 15
+        if pret_acum > upper_bb.iloc[-1]: scor -= 15
+        
+        probabilitate = scor if "CUMPĂR" in directie else (100 - scor)
+        
+        # --- AFIȘARE INTERFAȚĂ ---
+        st.title(f"🔍 Analiză Inteligentă: {ticker}")
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Preț Actual", f"${pret_acum:.2f}")
+        c2.metric("RSI (14)", f"{rsi_val:.1f}")
+        c3.metric("Volatilitate (ATR)", f"{volatilitate_pct:.2f}%")
+        c4.metric("Șanse Succes", f"{probabilitate}%")
+
+        # --- STRATEGIE MANAGEMENT RISC ---
+        st.divider()
+        col_st, col_dr = st.columns([1, 2])
+        
+        with col_st:
+            st.subheader("🎯 Parametri Trade")
+            # Calcul SL/TP dinamic bazat pe ATR (nu procente fixe)
+            distanta_sl = atr * 2
+            distanta_tp = atr * 3.5
             
-            risc_procent = (volatilitate * 2.5) / 100
-            expunere = suma_cash * levier
+            expunere = cash * levier
             
             if "CUMPĂR" in directie:
-                sl, tp = pret_acum * (1 - risc_procent), pret_acum * (1 + (risc_procent * 2))
-                tip_log = "LONG (Cumpărare)"
+                sl = pret_acum - distanta_sl
+                tp = pret_acum + distanta_tp
+                # Preț faliment (unde pierzi tot cash-ul)
+                faliment = pret_acum * (1 - (1/levier))
             else:
-                sl, tp = pret_acum * (1 + risc_procent), pret_acum * (1 - (risc_procent * 2))
-                tip_log = "SHORT (Vânzare)"
+                sl = pret_acum + distanta_sl
+                tp = pret_acum - distanta_tp
+                faliment = pret_acum * (1 + (1/levier))
 
-            p_pierdere = expunere * risc_procent
-            p_profit = expunere * (risc_procent * 2)
+            pierdere_£ = (abs(pret_acum - sl) / pret_acum) * expunere
+            profit_£ = (abs(pret_acum - tp) / pret_acum) * expunere
 
-            col_a, col_b, col_c = st.columns(3)
-            col_a.error(f"🛑 STOP LOSS\n\n**${sl:.2f}**\n\nPierdere: -£{p_pierdere:.2f}")
-            col_b.success(f"💰 TAKE PROFIT\n\n**${tp:.2f}**\n\nProfit: +£{p_profit:.2f}")
+            st.error(f"🛑 STOP LOSS: ${sl:.2f}")
+            st.success(f"💰 TAKE PROFIT: ${tp:.2f}")
+            st.warning(f"💀 MARGIN CALL: ${faliment:.2f}")
             
-            with col_c:
-                st.write("###")
-                if st.button("💾 EXECUȚĂ & SALVEAZĂ ÎN CLOUD", use_container_width=True):
-                    sheet = conectare_google_sheets()
-                    if sheet:
-                        try:
-                            now = datetime.now().strftime("%d/%m/%Y %H:%M")
-                            row = [now, nume_afisat, ticker, tip_log, suma_cash, f"1:{levier}", 
-                                   f"{probabilitate}%", round(pret_acum, 2), round(sl, 2), 
-                                   round(tp, 2), f"-{round(p_pierdere, 2)}", f"+{round(p_profit, 2)}"]
-                            sheet.append_row(row)
-                            st.balloons()
-                            st.success("Tranzacție înregistrată în Google Sheets!")
-                        except Exception as e:
-                            st.error(f"Eroare la scriere: {e}")
-
-            # 6. JURNAL CLOUD VIZUAL
-            st.divider()
-            if st.checkbox("🔍 Deschide Jurnalul Istoric"):
-                sheet = conectare_google_sheets()
+            st.write(f"Risc: £{pierdere_£:.2f} | Profit: £{profit_£:.2f}")
+            
+            if st.button("🚀 EXECUȚĂ & SALVEAZĂ"):
+                sheet = get_gsheet()
                 if sheet:
-                    data = sheet.get_all_records()
-                    if data:
-                        df_jurnal = pd.DataFrame(data)
-                        st.dataframe(df_jurnal.iloc[::-1], use_container_width=True)
-                    else:
-                        st.info("Jurnalul este gol.")
+                    now = datetime.now().strftime("%d/%m/%Y %H:%M")
+                    sheet.append_row([now, ticker, ticker, directie, cash, f"1:{levier}", f"{probabilitate}%", round(pret_acum, 2), round(sl, 2), round(tp, 2), f"-{round(pierdere_£, 2)}", f"+{round(profit_£, 2)}"])
+                    st.balloons()
+                    st.toast("Salvat în Cloud!")
 
-    except Exception as e:
-        st.error(f"Eroare la procesarea datelor: {e}")
+        with col_dr:
+            # GRAFIC AVANSAT
+            fig = go.Figure()
+            fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Preț"))
+            fig.add_trace(go.Scatter(x=df.index, y=upper_bb, line=dict(color='rgba(173, 216, 230, 0.2)'), name="BB Upper"))
+            fig.add_trace(go.Scatter(x=df.index, y=lower_bb, line=dict(color='rgba(173, 216, 230, 0.2)'), fill='tonexty', name="BB Lower"))
+            fig.add_trace(go.Scatter(x=df.index, y=sma20, line=dict(color='orange', width=1), name="Trend (SMA20)"))
+            fig.update_layout(template="plotly_dark", height=500, xaxis_rangeslider_visible=False, margin=dict(l=0,r=0,t=0,b=0))
+            st.plotly_chart(fig, use_container_width=True)
+
+        # --- JURNAL VIZUAL ---
+        st.divider()
+        with st.expander("📂 VEZI ISTORIC TRANZACȚII (CLOUDSHEETS)"):
+            sheet = get_gsheet()
+            if sheet:
+                data = sheet.get_all_records()
+                if data: st.table(pd.DataFrame(data).tail(10))
+
+except Exception as e:
+    st.error(f"S-a produs o eroare: {e}")
