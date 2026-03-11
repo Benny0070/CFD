@@ -10,7 +10,7 @@ import numpy as np
 # --- CONFIGURARE PAGINĂ ---
 st.set_page_config(page_title="Creier Digital ULTRA v3", layout="wide", page_icon="🧠")
 
-# --- CSS PERSONALIZAT PENTRU LOOK PROFESIONAL ---
+# --- CSS PERSONALIZAT ---
 st.markdown("""
     <style>
     .main { background-color: #0e1117; }
@@ -25,8 +25,8 @@ def check_password():
         st.session_state["password_correct"] = False
     if st.session_state["password_correct"]: return True
 
-    st.title("🔐 Terminal Biometric")
-    pwd = st.text_input("Introdu Cheia de Acces:", type="password")
+    st.title("🔐 Terminal Securizat")
+    pwd = st.text_input("Introdu Cheia de Acces (ex: 0000):", type="password")
     if st.button("AUTENTIFICARE"):
         if pwd == st.secrets["auth"]["password"]:
             st.session_state["password_correct"] = True
@@ -65,14 +65,13 @@ with st.sidebar:
         st.session_state["password_correct"] = False
         st.rerun()
 
-# --- MOTORUL ANALITIC (BACKEND) ---
+# --- MOTORUL ANALITIC ---
 try:
     df = yf.download(ticker, period="6mo", interval="1d", progress=False)
     if df.empty: st.error("Simbol invalid!")
     else:
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
         
-        # INDICATORI TEHNICI COMPLECȘI
         close = df['Close']
         high = df['High']
         low = df['Low']
@@ -84,7 +83,7 @@ try:
         rsi = 100 - (100 / (1 + gain/loss))
         rsi_val = rsi.iloc[-1]
 
-        # 2. Bollinger Bands (Volatilitate & Overbought/Oversold)
+        # 2. Bollinger Bands
         sma20 = close.rolling(window=20).mean()
         std20 = close.rolling(window=20).std()
         upper_bb = sma20 + (std20 * 2)
@@ -99,17 +98,14 @@ try:
 
         # --- LOGICA AI DE PROBABILITATE ---
         scor = 50
-        # Reguli Long
         if rsi_val < 35: scor += 15
         if pret_acum < lower_bb.iloc[-1]: scor += 15
-        if pret_acum > sma20.iloc[-1]: scor += 10
-        # Reguli Short
         if rsi_val > 65: scor -= 15
         if pret_acum > upper_bb.iloc[-1]: scor -= 15
         
         probabilitate = scor if "CUMPĂR" in directie else (100 - scor)
         
-        # --- AFIȘARE INTERFAȚĂ ---
+        # --- AFIȘARE ---
         st.title(f"🔍 Analiză Inteligentă: {ticker}")
         
         c1, c2, c3, c4 = st.columns(4)
@@ -118,62 +114,57 @@ try:
         c3.metric("Volatilitate (ATR)", f"{volatilitate_pct:.2f}%")
         c4.metric("Șanse Succes", f"{probabilitate}%")
 
-        # --- STRATEGIE MANAGEMENT RISC ---
         st.divider()
         col_st, col_dr = st.columns([1, 2])
         
         with col_st:
             st.subheader("🎯 Parametri Trade")
-            # Calcul SL/TP dinamic bazat pe ATR (nu procente fixe)
             distanta_sl = atr * 2
             distanta_tp = atr * 3.5
-            
             expunere = cash * levier
             
             if "CUMPĂR" in directie:
                 sl = pret_acum - distanta_sl
                 tp = pret_acum + distanta_tp
-                # Preț faliment (unde pierzi tot cash-ul)
                 faliment = pret_acum * (1 - (1/levier))
             else:
                 sl = pret_acum + distanta_sl
                 tp = pret_acum - distanta_tp
                 faliment = pret_acum * (1 + (1/levier))
 
-            pierdere_£ = (abs(pret_acum - sl) / pret_acum) * expunere
-            profit_£ = (abs(pret_acum - tp) / pret_acum) * expunere
+            # VARIABILELE CORECTATE FĂRĂ SIMBOLUL £
+            pierdere_suma = (abs(pret_acum - sl) / pret_acum) * expunere
+            profit_suma = (abs(pret_acum - tp) / pret_acum) * expunere
 
             st.error(f"🛑 STOP LOSS: ${sl:.2f}")
             st.success(f"💰 TAKE PROFIT: ${tp:.2f}")
             st.warning(f"💀 MARGIN CALL: ${faliment:.2f}")
             
-            st.write(f"Risc: £{pierdere_£:.2f} | Profit: £{profit_£:.2f}")
+            st.write(f"Risc: £{pierdere_suma:.2f} | Profit: £{profit_suma:.2f}")
             
             if st.button("🚀 EXECUȚĂ & SALVEAZĂ"):
                 sheet = get_gsheet()
                 if sheet:
                     now = datetime.now().strftime("%d/%m/%Y %H:%M")
-                    sheet.append_row([now, ticker, ticker, directie, cash, f"1:{levier}", f"{probabilitate}%", round(pret_acum, 2), round(sl, 2), round(tp, 2), f"-{round(pierdere_£, 2)}", f"+{round(profit_£, 2)}"])
+                    sheet.append_row([now, ticker, ticker, directie, cash, f"1:{levier}", f"{probabilitate}%", round(pret_acum, 2), round(sl, 2), round(tp, 2), f"-{round(pierdere_suma, 2)}", f"+{round(profit_suma, 2)}"])
                     st.balloons()
                     st.toast("Salvat în Cloud!")
 
         with col_dr:
-            # GRAFIC AVANSAT
             fig = go.Figure()
             fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Preț"))
             fig.add_trace(go.Scatter(x=df.index, y=upper_bb, line=dict(color='rgba(173, 216, 230, 0.2)'), name="BB Upper"))
             fig.add_trace(go.Scatter(x=df.index, y=lower_bb, line=dict(color='rgba(173, 216, 230, 0.2)'), fill='tonexty', name="BB Lower"))
-            fig.add_trace(go.Scatter(x=df.index, y=sma20, line=dict(color='orange', width=1), name="Trend (SMA20)"))
-            fig.update_layout(template="plotly_dark", height=500, xaxis_rangeslider_visible=False, margin=dict(l=0,r=0,t=0,b=0))
+            fig.add_trace(go.Scatter(x=df.index, y=sma20, line=dict(color='orange', width=1), name="SMA 20"))
+            fig.update_layout(template="plotly_dark", height=450, xaxis_rangeslider_visible=False, margin=dict(l=0,r=0,t=0,b=0))
             st.plotly_chart(fig, use_container_width=True)
 
-        # --- JURNAL VIZUAL ---
         st.divider()
-        with st.expander("📂 VEZI ISTORIC TRANZACȚII (CLOUDSHEETS)"):
+        with st.expander("📂 VEZI ISTORIC TRANZACȚII"):
             sheet = get_gsheet()
             if sheet:
                 data = sheet.get_all_records()
-                if data: st.table(pd.DataFrame(data).tail(10))
+                if data: st.dataframe(pd.DataFrame(data).tail(10), use_container_width=True)
 
 except Exception as e:
-    st.error(f"S-a produs o eroare: {e}")
+    st.error(f"Eroare: {e}")
