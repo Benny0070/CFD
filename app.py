@@ -124,13 +124,13 @@ try:
         with col_slider1:
             multiplicator_sl = st.slider("Cât de repede vrei să te scoată dacă greșești? (Stop Loss):", 0.5, 3.0, 1.5, step=0.1, help="Mai la stânga = te scoate repede ca să nu pierzi mult. Mai la dreapta = îi dai acțiunii loc să respire.")
         with col_slider2:
-            raport_rr = st.slider("Cât profit urmărești? (Take Profit):", 1.0, 5.0, 2.0, step=0.5, help="La 2.0 înseamnă că țintești să faci profit dublu față de cât riști să pierzi.")
+            raport_rr = st.slider("Cât profit urmărești? (Take-profit):", 1.0, 5.0, 2.0, step=0.5, help="La 2.0 înseamnă că țintești să faci profit dublu față de cât riști să pierzi.")
 
         # --- CALCUL MAGIC PENTRU CITY INDEX ---
         sl_dist_usd = atr * multiplicator_sl 
         tp_dist_usd = sl_dist_usd * raport_rr 
         
-        # Dacă bagi 500£, City Index îți dă de fapt putere de cumpărare de 5 ori mai mare (Levier).
+        # Dacă bagi 500£, City Index îți dă putere de cumpărare de 5 ori mai mare (Levier).
         putere_cumparare_gbp = suma_de_bagat_gbp * 5 
         putere_cumparare_usd = putere_cumparare_gbp * curs_gbp_usd
         
@@ -178,12 +178,17 @@ try:
 
         st.write("---")
         
-        # --- CE SCRII PE TELEFON ---
-        st.subheader("📱 Copiază valorile astea în City Index")
+        # --- CE SCRII PE TELEFON (ADAPTAT EXACT LA CITY INDEX) ---
+        st.subheader("📱 Ce bifezi pe telefon în City Index:")
+        st.warning("⚠️ Sus pe ecranul din City Index asigură-te că ești pe tab-ul **Trade**, NU pe Order.")
+        
         col_c1, col_c2, col_c3 = st.columns(3)
-        col_c1.info(f"🔢 **CANTITATE:**\n# {cantitate}")
-        col_c2.error(f"🔴 **STOP LOSS:**\n$ {sl_usd:.2f}")
-        col_c3.success(f"🟢 **TAKE PROFIT:**\n$ {tp_usd:.2f}")
+        col_c1.info(f"**Amount:**\n# {cantitate}")
+        col_c2.success(f"Bifează **Take-profit:**\n$ {tp_usd:.2f}")
+        col_c3.error(f"Bifează **Stop-loss:**\n$ {sl_usd:.2f}")
+
+        buton_city = "Place buy trade" if "CUMP" in directie else "Place sell trade"
+        st.markdown(f"➡️ **Hedging:** Lasă nebifat.<br>➡️ Apasă butonul: **{buton_city}**", unsafe_allow_html=True)
 
         st.write("---")
         
@@ -203,7 +208,7 @@ try:
 
         # --- SALVARE ---
         st.write("---")
-        if st.button("✅ Am pus comanda pe telefon (Salvează)"):
+        if st.button("✅ Am plasat comanda pe telefon (Salvează-mi banii în Excel)"):
             sheet = get_gsheet()
             if sheet:
                 now = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -216,7 +221,7 @@ try:
                         f"-£{round(pierdere_gbp, 2)}", f"+£{round(profit_gbp, 2)}"
                     ])
                     st.session_state["bani_blocati"] += suma_de_bagat_gbp
-                    st.toast("Bravo! Am salvat tranzacția.")
+                    st.toast("Bravo! Am salvat tranzacția în istoric.")
                     st.rerun() 
                 except Exception as e:
                     st.error("Nu am putut salva. Verifică Excel-ul.")
@@ -231,9 +236,9 @@ try:
                     df_istoric = pd.DataFrame(data)
                     st.dataframe(df_istoric.iloc[::-1], use_container_width=True)
 
-                    if st.button("♻️ O tranzacție s-a terminat? Eliberează banii blocați"):
+                    if st.button("♻️ O tranzacție s-a terminat? Eliberează banii înapoi în Liber"):
                         st.session_state["bani_blocati"] = 0.0
                         st.rerun()
 
 except Exception as e:
-    st.error(f"Ceva nu a mers bine: {e}")
+    st.error(f"Ceva nu a mers bine la procesarea pieței: {e}")
