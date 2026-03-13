@@ -33,7 +33,7 @@ st.markdown("""
     }
     .stButton>button:hover { background-color: #1f772e !important; }
     
-    /* 4. Casetele cu statistici (un pic de gri deschis să iasă în evidență pe alb) */
+    /* 4. Casetele cu statistici */
     .stMetric {
         background-color: #f4f6f9 !important;
         padding: 15px !important;
@@ -131,7 +131,7 @@ try:
     if not ticker:
         st.warning("👈 Te rog scrie un simbol bursier în meniul din stânga pentru a începe.")
     else:
-        with st.spinner(f'Descarc datele pentru {ticker}...'):
+        with st.spinner(f'Descarc datele proaspete pentru {ticker}...'):
             df = yf.download(ticker, period=perioada_yf, interval=interval_yf, progress=False)
         
         if df.empty: 
@@ -145,7 +145,14 @@ try:
             tr = pd.concat([high - low, abs(high - close.shift()), abs(low - close.shift())], axis=1).max(axis=1)
             atr = tr.rolling(window=14).mean().iloc[-1]
             
-            st.title(f"📊 Analiză pentru {ticker} (Preț: ${pret_acum:.2f})")
+            # --- MODIFICARE AICI: Titlul + Butonul de Refresh ---
+            col_titlu, col_refresh = st.columns([3, 1])
+            with col_titlu:
+                st.title(f"📊 Analiză pentru {ticker} (Preț: ${pret_acum:.2f})")
+            with col_refresh:
+                st.write("") # Adăugăm un pic de spațiu gol ca să se alinieze frumos
+                if st.button("🔄 Actualizează Prețul"):
+                    st.rerun()
             
             # --- SLIDERE ---
             st.write("Ajustează-ți planul de atac trăgând de butoanele de mai jos:")
@@ -166,9 +173,12 @@ try:
             if cantitate < 1: cantitate = 1
 
             if "CUMP" in directie:
-                sl_usd, tp_usd = pret_acum - sl_dist_usd, pret_acum + tp_dist_usd
+                sl_usd, pret_acum - sl_dist_usd
+                tp_usd = pret_acum + tp_dist_usd
+                sl_usd = pret_acum - sl_dist_usd
             else:
-                sl_usd, tp_usd = pret_acum + sl_dist_usd, pret_acum - tp_dist_usd
+                sl_usd = pret_acum + sl_dist_usd
+                tp_usd = pret_acum - tp_dist_usd
 
             pierdere_gbp = (cantitate * sl_dist_usd) / curs_gbp_usd
             profit_gbp = (cantitate * tp_dist_usd) / curs_gbp_usd
