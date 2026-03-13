@@ -145,12 +145,11 @@ try:
             tr = pd.concat([high - low, abs(high - close.shift()), abs(low - close.shift())], axis=1).max(axis=1)
             atr = tr.rolling(window=14).mean().iloc[-1]
             
-            # --- MODIFICARE AICI: Titlul + Butonul de Refresh ---
             col_titlu, col_refresh = st.columns([3, 1])
             with col_titlu:
                 st.title(f"📊 Analiză pentru {ticker} (Preț: ${pret_acum:.2f})")
             with col_refresh:
-                st.write("") # Adăugăm un pic de spațiu gol ca să se alinieze frumos
+                st.write("") 
                 if st.button("🔄 Actualizează Prețul"):
                     st.rerun()
             
@@ -172,10 +171,10 @@ try:
             cantitate = int(putere_cumparare_usd / pret_acum) 
             if cantitate < 1: cantitate = 1
 
+            # Aici era greșeala! Am corectat-o.
             if "CUMP" in directie:
-                sl_usd, pret_acum - sl_dist_usd
-                tp_usd = pret_acum + tp_dist_usd
                 sl_usd = pret_acum - sl_dist_usd
+                tp_usd = pret_acum + tp_dist_usd
             else:
                 sl_usd = pret_acum + sl_dist_usd
                 tp_usd = pret_acum - tp_dist_usd
