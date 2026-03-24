@@ -157,9 +157,9 @@ try:
             st.write("Ajustează-ți planul de atac trăgând de butoanele de mai jos:")
             col_slider1, col_slider2 = st.columns(2)
             with col_slider1:
-                multiplicator_sl = st.slider("Cât de repede vrei să te scoată dacă greșești? (Stop Loss):", 0.5, 3.0, 1.5, step=0.1)
+                multiplicator_sl = st.slider("Cât de repede vrei să te scoată dacă greșești? (Stop Loss):", 0.1, 0.5, 3.0, 1.5, step=0.1)
             with col_slider2:
-                raport_rr = st.slider("Cât profit urmărești? (Take-profit):", 1.0, 5.0, 2.0, step=0.1)
+                raport_rr = st.slider("Cât profit urmărești? (Take-profit):", 0.1 1.0, 5.0, 2.0, step=0.1)
 
             # --- CALCUL ---
             sl_dist_usd = atr * multiplicator_sl 
