@@ -31,7 +31,7 @@ with st.sidebar:
         suma_gbp = st.number_input("Suma pe care o ai (£):", value=100.0, step=10.0)
         cantitate_manuala = None
     else:
-        cantitate_manuala = st.number_input("Câte acțiuni vrei (Amount):", value=5, step=0.1, min_value=1)
+        cantitate_manuala = st.number_input("Câte acțiuni vrei (Amount):", value=5.0, step=0.1, min_value=1.0)
         suma_gbp = None
 
     st.divider()
