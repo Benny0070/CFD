@@ -41,7 +41,7 @@ with st.sidebar:
 
     st.divider()
     multiplicator_sl = st.slider("Sensibilitate Stop Loss (ATR):", 0.5, 3.0, 1.5, 0.1)
-    raport_rr = st.slider("Țintă Profit (Ratio):", 1.0, 5.0, 2.0, 0.1)
+    raport_rr = st.slider("Țintă Profit (Ratio):", 0.1, 5.0, 2.0, 0.1)
 
 # --- 3. LOGICĂ ȘI CALCULE ---
 if ticker:
