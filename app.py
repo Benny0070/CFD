@@ -146,7 +146,7 @@ if ticker:
             
             st.markdown(f"""
                 <div style="background-color: {culoare_box}; padding: 20px; border-radius: 10px; border: 2px solid #333;">
-                    <h2 style="margin-top:0px; text-align:center;">📱 City Index: {text_actiune}</h2>
+                    <h2 style="margin-top:0px; text-align:center;"> City Index: {text_actiune}</h2>
                     <p style="font-size: 20px; text-align:center;">
                         Amount: <b>{cantitate}</b> | 
                         Take Profit: <b>${tp:.2f}</b> | 
@@ -240,7 +240,7 @@ try:
             # --- TABLOUL PENTRU CITY INDEX ---
             st.markdown(f"""
                 <div style="background-color: #f8fafc; border: 2px solid #2ea043; padding: 20px; border-radius: 10px;">
-                    <h3 style="margin-top:0px;">📱 De introdus pe telefon:</h3>
+                    <h3 style="margin-top:0px;"> De introdus pe telefon:</h3>
                     <p style="font-size: 20px;">
                         1. Direcție: <strong>{"BUY" if "CUMP" in directie else "SELL"}</strong><br>
                         2. Amount (Cantitate): <strong>{cantitate}</strong><br>
