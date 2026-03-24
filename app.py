@@ -159,7 +159,7 @@ try:
             with col_slider1:
                 multiplicator_sl = st.slider("Cât de repede vrei să te scoată dacă greșești? (Stop Loss):", 0.5, 3.0, 1.5, step=0.1)
             with col_slider2:
-                raport_rr = st.slider("Cât profit urmărești? (Take-profit):", 1.0, 5.0, 2.0, step=0.5)
+                raport_rr = st.slider("Cât profit urmărești? (Take-profit):", 1.0, 5.0, 2.0, step=0.1)
 
             # --- CALCUL ---
             sl_dist_usd = atr * multiplicator_sl 
