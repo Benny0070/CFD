@@ -11,16 +11,23 @@ st.markdown("""
     <style>
     .stApp, [data-testid="stSidebar"], [data-testid="stHeader"] { background-color: #ffffff !important; }
     p, h1, h2, h3, h4, h5, h6, span, label, div { color: #000000 !important; }
-    .stButton>button { background-color: #2ea043 !important; color: #ffffff !important; font-weight: bold !important; }
+    .stButton>button { background-color: #2ea043 !important; color: #ffffff !important; font-weight: bold !important; border-radius: 8px; }
     .stMetric { background-color: #f8fafc !important; border: 1px solid #e2e8f0 !important; border-radius: 10px !important; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- 2. SIDEBAR (CONFIGURARE) ---
 with st.sidebar:
-    st.header("💼 Configurare Trade")
-    ticker = st.text_input("Simbol (ex: NVDA, TSLA):", value="NVDA").upper().strip()
-    directie = st.radio("Direcție:", ["📈 CUMPĂRARE (Long)", "📉 VÂNZARE (Short)"])
+    st.header("💼 Control Panel")
+    
+    # BUTON REFRESH
+    if st.button("🔄 REFRESH DATE (Actualizează Preț)"):
+        st.cache_data.clear()
+        st.rerun()
+
+    st.divider()
+    ticker = st.text_input("Simbol (ex: NVDA, TSLA, BTC-USD):", value="NVDA").upper().strip()
+    directie = st.radio("Direcție Trade:", ["📈 CUMPĂRARE (Long)", "📉 VÂNZARE (Short)"])
     
     st.divider()
     
@@ -39,6 +46,7 @@ with st.sidebar:
 # --- 3. LOGICĂ ȘI CALCULE ---
 if ticker:
     try:
+        # Descărcăm datele (60 de zile pentru EMA 200)
         df = yf.download(ticker, period="60d", interval="15m", progress=False)
         if not df.empty:
             if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
@@ -48,7 +56,9 @@ if ticker:
             curs_gbp_usd = 1.28
 
             # --- INDICATORI ---
-            ema200 = close_prices.ewm(span=200, adjust=False).mean().iloc[-1]
+            ema200_series = close_prices.ewm(span=200, adjust=False).mean()
+            ema200_val = ema200_series.iloc[-1]
+            
             delta = close_prices.diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -61,7 +71,7 @@ if ticker:
 
             # --- PROBABILITATE ---
             scor = 50
-            if pret_acum > ema200: scor += 15
+            if pret_acum > ema200_val: scor += 15
             else: scor -= 15
             if rsi_val < 35: scor += 20
             elif rsi_val > 65: scor -= 20
@@ -91,19 +101,32 @@ if ticker:
 
             # --- AFIȘARE UI ---
             st.title(f"📊 {ticker} la ${pret_acum:.2f}")
-            st.subheader(f"Probabilitate: {probabilitate}%")
+            st.subheader(f"Probabilitate Succes: {probabilitate}%")
             st.progress(probabilitate / 100)
 
             c1, c2, c3 = st.columns(3)
-            c1.metric("Acțiuni", f"{cantitate}")
-            c2.metric("Marjă", f"£{marja_gbp:.2f}")
-            c3.metric("P/L Estimat", f"£{((abs(tp_p - pret_acum) * cantitate) / curs_gbp_usd):.2f}")
+            with c1:
+                st.metric("Cantitate (Amount)", f"{cantitate}")
+            with c2:
+                st.metric("Marjă Necesară", f"£{marja_gbp:.2f}")
+            with c3:
+                profit_net_gbp = ((abs(tp_p - pret_acum) * cantitate) / curs_gbp_usd)
+                st.metric("Profit Estimat", f"£{profit_net_gbp:.2f}")
 
-            # --- GRAFIC ---
-            fig = go.Figure(data=[go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Preț")])
-            fig.add_hline(y=tp_p, line_dash="dash", line_color="green", annotation_text="Profit")
-            fig.add_hline(y=sl_p, line_dash="dash", line_color="red", annotation_text="Stop")
-            fig.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0), template="plotly_white")
+            # --- GRAFIC INTERACTIV ---
+            fig = go.Figure(data=[go.Candlestick(
+                x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Preț"
+            )])
+            
+            # Adăugăm EMA 200 pe grafic
+            fig.add_trace(go.Scatter(x=df.index, y=ema200_series, line=dict(color='orange', width=1), name="EMA 200"))
+            
+            # Liniile de TP și SL
+            fig.add_hline(y=tp_p, line_dash="dash", line_color="green", annotation_text="Profit (Target)")
+            fig.add_hline(y=sl_p, line_dash="dash", line_color="red", annotation_text="Stop Loss")
+            
+            fig.update_layout(height=450, margin=dict(l=0, r=0, t=0, b=0), template="plotly_white", 
+                              xaxis_rangeslider_visible=False)
             st.plotly_chart(fig, use_container_width=True)
 
             # --- BOXA CITY INDEX ---
@@ -112,13 +135,16 @@ if ticker:
             tp_f, sl_f = f"{tp_p:.2f}", f"{sl_p:.2f}"
             
             st.markdown(f"""
-                <div style="background-color: {box_c}; padding: 20px; border-radius: 15px; border: 3px solid {txt_c}; text-align: center;">
-                    <h2 style="color: #000; margin: 0;">📱 City Index: {"BUY" if "CUMP" in directie else "SELL"}</h2>
-                    <p style="font-size: 22px; color: #000; margin: 10px 0;">
+                <div style="background-color: {box_c}; padding: 25px; border-radius: 15px; border: 3px solid {txt_c}; text-align: center; margin-top: 20px;">
+                    <h2 style="color: #000; margin: 0;">📱 City Index: {"BUY (Long)" if "CUMP" in directie else "SELL (Short)"}</h2>
+                    <p style="font-size: 24px; color: #000; margin: 15px 0;">
                         <b>Amount:</b> {cantitate} | <b>TP:</b> ${tp_f} | <b>SL:</b> ${sl_f}
                     </p>
+                    <p style="color: #333; font-size: 14px;">(Verifică simbolul <b>{ticker}</b> înainte de a plasa trade-ul)</p>
                 </div>
             """, unsafe_allow_html=True)
 
     except Exception as e:
-        st.error(f"Eroare: {e}")
+        st.error(f"Eroare tehnică: {e}")
+else:
+    st.info("Introdu un simbol în stânga pentru a începe analiza.")
