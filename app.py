@@ -6,7 +6,6 @@ import plotly.graph_objects as go
 # --- 1. CONFIGURARE PAGINĂ ---
 st.set_page_config(page_title="Asistent CFD: Misiunea 45k", layout="wide", page_icon="🚀")
 
-# CSS pentru fundal alb și text negru
 st.markdown("""
     <style>
     .stApp, [data-testid="stSidebar"], [data-testid="stHeader"] { background-color: #ffffff !important; }
@@ -16,44 +15,47 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. SIDEBAR (CONFIGURARE) ---
+# --- 2. SIDEBAR ---
 with st.sidebar:
     st.header("💼 Control Panel")
     
-    # BUTON REFRESH
-    if st.button("🔄 REFRESH DATE (Actualizează Preț)"):
+    if st.button("🔄 REFRESH DATE"):
         st.cache_data.clear()
         st.rerun()
 
     st.divider()
-    ticker = st.text_input("Simbol (ex: NVDA, TSLA, BTC-USD):", value="NVDA").upper().strip()
+    ticker = st.text_input("Simbol (ex: NVDA, TSLA):", value="NVDA").upper().strip()
     directie = st.radio("Direcție Trade:", ["📈 CUMPĂRARE (Long)", "📉 VÂNZARE (Short)"])
     
     st.divider()
-    
     mod_calcul = st.selectbox("Miză bazată pe:", ["Suma în Bani (£)", "Număr de Acțiuni (Qty)"])
     if mod_calcul == "Suma în Bani (£)":
         suma_gbp = st.number_input("Suma disponibilă (£):", value=100.0, step=10.0)
         cantitate_manuala = None
     else:
-        cantitate_manuala = st.number_input("Câte acțiuni vrei (Amount):", value=1.0, step=0.1, min_value=1.0)
+        cantitate_manuala = st.number_input("Câte acțiuni (Qty):", value=10.0, step=1.0, min_value=1.0)
         suma_gbp = None
 
+    # SETĂRI OPTIMIZATE (ATR 2.0, Ratio 1.2)
     st.divider()
-    multiplicator_sl = st.slider("Sensibilitate Stop Loss (ATR):", 0.5, 3.0, 1.5, 0.1)
-    raport_rr = st.slider("Țintă Profit (Ratio):", 0.1, 5.0, 2.0, 0.1)
+    multiplicator_sl = st.slider("Sensibilitate Stop Loss (ATR):", 0.5, 4.0, 2.0, 0.1)
+    raport_rr = st.slider("Țintă Profit (Ratio):", 0.1, 5.0, 1.2, 0.1)
+    
+    # COSTURI CITY INDEX (Estimative)
+    st.subheader("⚙️ Setări Broker (City Index)")
+    comision_minim = st.number_input("Comision Minim (£):", value=10.0, help="City Index ia minim ~10 GBP pe trade la acțiuni.")
+    spread_puncte = st.number_input("Spread estimat ($):", value=0.05, step=0.01, help="Diferența de preț Bid/Ask")
 
 # --- 3. LOGICĂ ȘI CALCULE ---
 if ticker:
     try:
-        # Descărcăm datele (60 de zile pentru EMA 200)
         df = yf.download(ticker, period="60d", interval="15m", progress=False)
         if not df.empty:
             if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
             
             close_prices = df['Close']
             pret_acum = float(close_prices.iloc[-1])
-            curs_gbp_usd = 1.28
+            curs_gbp_usd = 1.28  # Curs estimat
 
             # --- INDICATORI ---
             ema200_series = close_prices.ewm(span=200, adjust=False).mean()
@@ -90,6 +92,7 @@ if ticker:
                 cantitate = int(cantitate_manuala)
                 marja_gbp = ((cantitate * pret_acum) / levier) / curs_gbp_usd
 
+            # ATR & Target
             tr = pd.concat([df['High']-df['Low'], abs(df['High']-close_prices.shift()), abs(df['Low']-close_prices.shift())], axis=1).max(axis=1)
             atr = tr.rolling(window=14).mean().iloc[-1]
             
@@ -99,48 +102,63 @@ if ticker:
             sl_p = pret_acum - dist_sl if "CUMP" in directie else pret_acum + dist_sl
             tp_p = pret_acum + dist_tp if "CUMP" in directie else pret_acum - dist_tp
 
+            # --- CALCUL BREAKEVEN (Punctul 0 real) ---
+            # Cost total = (Comision Deschidere + Inchidere) + (Spread * Cantitate)
+            cost_total_gbp = (comision_minim * 2) + ((spread_puncte * cantitate) / curs_gbp_usd)
+            necesar_miscare_pret = (cost_total_gbp * curs_gbp_usd) / cantitate
+            
+            if "CUMP" in directie:
+                breakeven_p = pret_acum + necesar_miscare_pret
+            else:
+                breakeven_p = pret_acum - necesar_miscare_pret
+
             # --- AFIȘARE UI ---
             st.title(f"📊 {ticker} la ${pret_acum:.2f}")
-            st.subheader(f"Probabilitate Succes: {probabilitate}%")
-            st.progress(probabilitate / 100)
+            
+            col_a, col_b = st.columns([2,1])
+            with col_a:
+                st.subheader(f"Probabilitate Succes: {probabilitate}%")
+                st.progress(probabilitate / 100)
+            with col_b:
+                st.warning(f"⚠️ Pierzi £{cost_total_gbp:.2f} instant la deschidere (Spread+Taxe).")
 
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
             with c1:
-                st.metric("Cantitate (Amount)", f"{cantitate}")
+                st.metric("Cantitate", f"{cantitate}")
             with c2:
-                st.metric("Marjă Necesară", f"£{marja_gbp:.2f}")
+                st.metric("Marjă", f"£{marja_gbp:.2f}")
             with c3:
-                profit_net_gbp = ((abs(tp_p - pret_acum) * cantitate) / curs_gbp_usd)
-                st.metric("Profit Estimat", f"£{profit_net_gbp:.2f}")
+                profit_net_gbp = (((abs(tp_p - pret_acum) * cantitate) / curs_gbp_usd) - cost_total_gbp)
+                st.metric("Profit NET (După taxe)", f"£{profit_net_gbp:.2f}")
+            with c4:
+                st.metric("Preț Breakeven", f"${breakeven_p:.2f}")
 
             # --- GRAFIC INTERACTIV ---
             fig = go.Figure(data=[go.Candlestick(
                 x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Preț"
             )])
             
-            # Adăugăm EMA 200 pe grafic
             fig.add_trace(go.Scatter(x=df.index, y=ema200_series, line=dict(color='orange', width=1), name="EMA 200"))
             
-            # Liniile de TP și SL
-            fig.add_hline(y=tp_p, line_dash="dash", line_color="green", annotation_text="Profit (Target)")
+            # Liniile strategice
+            fig.add_hline(y=tp_p, line_dash="dash", line_color="green", annotation_text="Profit Target")
             fig.add_hline(y=sl_p, line_dash="dash", line_color="red", annotation_text="Stop Loss")
+            fig.add_hline(y=breakeven_p, line_dash="dot", line_color="blue", annotation_text="ZERO REAL (Breakeven)", annotation_font_color="blue")
             
-            fig.update_layout(height=450, margin=dict(l=0, r=0, t=0, b=0), template="plotly_white", 
-                              xaxis_rangeslider_visible=False)
+            fig.update_layout(height=500, margin=dict(l=0, r=0, t=0, b=0), template="plotly_white", xaxis_rangeslider_visible=False)
             st.plotly_chart(fig, use_container_width=True)
 
             # --- BOXA CITY INDEX ---
             box_c = "#dcfce7" if "CUMP" in directie else "#fee2e2"
             txt_c = "#16a34a" if "CUMP" in directie else "#dc2626"
-            tp_f, sl_f = f"{tp_p:.2f}", f"{sl_p:.2f}"
             
             st.markdown(f"""
                 <div style="background-color: {box_c}; padding: 25px; border-radius: 15px; border: 3px solid {txt_c}; text-align: center; margin-top: 20px;">
                     <h2 style="color: #000; margin: 0;">📱 City Index: {"BUY (Long)" if "CUMP" in directie else "SELL (Short)"}</h2>
-                    <p style="font-size: 24px; color: #000; margin: 15px 0;">
-                        <b>Amount:</b> {cantitate} | <b>TP:</b> ${tp_f} | <b>SL:</b> ${sl_f}
+                    <p style="font-size: 22px; color: #000; margin: 15px 0;">
+                        <b>Amount:</b> {cantitate} | <b>TP:</b> ${tp_p:.2f} | <b>SL:</b> ${sl_p:.2f}
                     </p>
-                    <p style="color: #333; font-size: 14px;">(Verifică simbolul <b>{ticker}</b> înainte de a plasa trade-ul)</p>
+                    <p style="color: #d97706; font-size: 16px;"><b>ATENȚIE:</b> Nu închide trade-ul până prețul nu depășește <b>${breakeven_p:.2f}</b>, altfel ieși pe minus!</p>
                 </div>
             """, unsafe_allow_html=True)
 
