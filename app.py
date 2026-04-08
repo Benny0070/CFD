@@ -6,19 +6,17 @@ import numpy as np
 from datetime import datetime
 
 # --- 1. CONFIGURARE PAGINĂ ---
-st.set_page_config(page_title="Asistent CFD Pro: Misiunea 45k", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Asistent CFD Pro", layout="wide", page_icon="🚀")
 
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; }
     .stMetric { background-color: #f8fafc; border-radius: 12px; padding: 15px; border: 1px solid #e2e8f0; }
-    [data-testid="stSidebar"] { background-color: #f1f5f9; }
-    .stButton>button { background-color: #0f172a !important; color: white !important; border-radius: 8px; }
+    .stProgress > div > div > div > div { background-color: #10b981; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. LOGICĂ CALCULE (CACHED) ---
-
+# --- 2. FUNCȚII TEHNICE ---
 @st.cache_data(ttl=300)
 def get_market_data(ticker, interval="15m"):
     df = yf.download(ticker, period="60d", interval=interval, progress=False)
@@ -42,10 +40,9 @@ def calculate_rsi_wilder(series, period=14):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
-# --- 3. SIDEBAR (CONTROL PANEL) ---
+# --- 3. SIDEBAR ---
 with st.sidebar:
-    st.header("🎮 Panou Control")
-    
+    st.header("⚙️ Setări")
     tip_activ = st.selectbox("Tip Activ:", ["Acțiuni", "Metale", "Forex"])
     
     if tip_activ == "Acțiuni":
@@ -61,25 +58,20 @@ with st.sidebar:
     directie = st.radio("Direcție:", ["📈 BUY (Long)", "📉 SELL (Short)"])
     
     st.divider()
-    st.subheader("💰 Management Poziție")
-    mod_calcul = st.radio("Calculează miza după:", ["Suma în £", "Număr Unități (Qty)"])
-    
+    mod_calcul = st.radio("Miză după:", ["Suma în £", "Număr Unități (Qty)"])
     if mod_calcul == "Suma în £":
-        miza_valoare = st.number_input("Suma disponibilă (£):", value=100.0, step=10.0)
+        miza_valoare = st.number_input("Suma (£):", value=100.0, step=10.0)
         qty_manual = None
     else:
-        qty_manual = st.number_input("Cantitate (Unități):", value=10, step=1, min_value=1)
+        qty_manual = st.number_input("Unități (Qty):", value=10, step=1)
         miza_valoare = None
 
-    st.divider()
     mult_sl = st.slider("Sensibilitate SL (ATR):", 1.0, 5.0, 2.0)
     rr_ratio = st.slider("Target Profit (Ratio):", 0.5, 5.0, 1.5)
-    
-    st.divider()
-    comision_minim = st.number_input("Comision Broker (£):", value=10.0)
     spread_val = st.number_input("Spread estimat ($):", value=0.05, format="%.4f")
+    comision_minim = st.number_input("Comision Broker (£):", value=10.0)
 
-# --- 4. EXECUȚIE ȘI AFIȘARE ---
+# --- 4. LOGICĂ ȘI CALCULE ---
 df = get_market_data(ticker_input)
 curs_live = get_exchange_rate()
 
@@ -90,60 +82,86 @@ if not df.empty:
     # Indicatori
     df['EMA200'] = close.ewm(span=200, adjust=False).mean()
     df['RSI'] = calculate_rsi_wilder(close)
+    
+    # MACD pentru scor
+    exp1 = close.ewm(span=12, adjust=False).mean()
+    exp2 = close.ewm(span=26, adjust=False).mean()
+    df['MACD'] = exp1 - exp2
+    df['Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    
+    # ATR
     tr = pd.concat([df['High']-df['Low'], abs(df['High']-close.shift()), abs(df['Low']-close.shift())], axis=1).max(axis=1)
     atr = tr.rolling(window=14).mean().iloc[-1]
     
-    # --- LOGICA DINAMICĂ SUMA VS QTY ---
-    if mod_calcul == "Suma în £":
-        # Câte unități îmi permit cu X lire la levierul Y?
-        cantitate = int((miza_valoare * levier * curs_live) / pret_acum)
-        marja_necesara_gbp = miza_valoare
-    else:
-        # Câte lire îmi trebuie pentru X unități?
-        cantitate = qty_manual
-        marja_necesara_gbp = (cantitate * pret_acum) / (levier * curs_live)
+    # SCOR PROBABILITATE
+    scor = 50
+    rsi_val = df['RSI'].iloc[-1]
+    ema_val = df['EMA200'].iloc[-1]
+    macd_val = df['MACD'].iloc[-1]
+    sig_val = df['Signal'].iloc[-1]
 
-    # Prevenire eroare diviziune la zero sau qty prea mic
+    if "BUY" in directie:
+        if pret_acum > ema_val: scor += 15
+        if rsi_val < 35: scor += 20
+        elif rsi_val > 70: scor -= 15
+        if macd_val > sig_val: scor += 15
+    else: # SHORT
+        if pret_acum < ema_val: scor += 15
+        if rsi_val > 65: scor += 20
+        elif rsi_val < 30: scor -= 15
+        if macd_val < sig_val: scor += 15
+    
+    probabilitate = max(10, min(95, scor))
+
+    # GESTIUNE CANTITATE
+    if mod_calcul == "Suma în £":
+        cantitate = int((miza_valoare * levier * curs_live) / pret_acum)
+        marja_gbp = miza_valoare
+    else:
+        cantitate = qty_manual
+        marja_gbp = (cantitate * pret_acum) / (levier * curs_live)
+    
     if cantitate <= 0: cantitate = 1
 
-    # SL / TP / Breakeven
+    # SL, TP & Breakeven
     dist_sl = atr * mult_sl
     dist_tp = dist_sl * rr_ratio
     sl_p = pret_acum - dist_sl if "BUY" in directie else pret_acum + dist_sl
     tp_p = pret_acum + dist_tp if "BUY" in directie else pret_acum - dist_tp
     
-    cost_total_usd = (comision_minim * 2 * curs_live) + (spread_val * cantitate)
-    breakeven_p = pret_acum + (cost_total_usd / cantitate) if "BUY" in directie else pret_acum - (cost_total_usd / cantitate)
+    cost_usd = (comision_minim * 2 * curs_live) + (spread_val * cantitate)
+    breakeven_p = pret_acum + (cost_usd / cantitate) if "BUY" in directie else pret_acum - (cost_usd / cantitate)
+
+    # --- 5. AFIȘARE ---
+    st.title(f"📊 {ticker_input} | Preț: ${pret_acum:.2f}")
     
-    # --- INTERFAȚA ---
-    st.title(f"📊 {ticker_input} - Analiză Live")
+    # Afișare Probabilitate (Ceea ce lipsea)
+    st.subheader(f"Probabilitate de Succes: {probabilitate}%")
+    st.progress(probabilitate / 100)
     
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Preț USD", f"${pret_acum:.2f}")
-    c2.metric("Marjă Necesară", f"£{marja_necesara_gbp:.2f}")
-    c3.metric("Cantitate", f"{cantitate} units")
-    c4.metric("RSI", f"{df['RSI'].iloc[-1]:.1f}")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Cantitate", f"{cantitate}")
+    col2.metric("Marjă Necesară", f"£{marja_gbp:.2f}")
+    col3.metric("RSI", f"{rsi_val:.1f}")
+    col4.metric("Breakeven", f"${breakeven_p:.2f}")
 
     # Grafic
     fig = go.Figure(data=[go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Preț")])
-    fig.add_hline(y=tp_p, line_dash="dash", line_color="#10b981", annotation_text="Profit")
-    fig.add_hline(y=sl_p, line_dash="dash", line_color="#ef4444", annotation_text="Stop")
-    fig.add_hline(y=breakeven_p, line_dash="dot", line_color="#3b82f6", annotation_text="Breakeven")
-    fig.update_layout(height=450, template="plotly_white", margin=dict(l=0, r=0, t=0, b=0), xaxis_rangeslider_visible=False)
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], line=dict(color='orange', width=1), name="EMA 200"))
+    fig.add_hline(y=tp_p, line_dash="dash", line_color="green", annotation_text="TP")
+    fig.add_hline(y=sl_p, line_dash="dash", line_color="red", annotation_text="SL")
+    fig.add_hline(y=breakeven_p, line_dash="dot", line_color="blue", annotation_text="Zero Real")
+    fig.update_layout(height=400, margin=dict(l=0, r=0, t=0, b=0), template="plotly_white", xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
-    # BOXA DE EXECUȚIE (Rezumat pentru City Index)
+    # Boxa Finală
     st.markdown(f"""
-        <div style="background-color: #f8fafc; padding: 25px; border-radius: 15px; border: 2px solid #0f172a;">
-            <h3 style="margin: 0; color: #0f172a;">📝 Detalii Ordin (City Index)</h3>
-            <hr>
-            <p style="font-size: 20px;"><b>Direcție:</b> {"BUY (Long)" if "BUY" in directie else "SELL (Short)"} | <b>Unități:</b> {cantitate}</p>
-            <p style="font-size: 18px;">
-                🎯 <b>TP:</b> ${tp_p:.2f} &nbsp;&nbsp; | &nbsp;&nbsp; 🛑 <b>SL:</b> ${sl_p:.2f}
+        <div style="background-color: #f1f5f9; padding: 20px; border-radius: 12px; border: 2px solid #0f172a; color: #1e293b;">
+            <h3 style="margin: 0;">📋 Rezumat Ordin City Index</h3>
+            <p style="font-size: 18px; margin: 10px 0;">
+                <b>Direcție:</b> {"BUY" if "BUY" in directie else "SELL"} | <b>Cantitate:</b> {cantitate} <br>
+                <b>Stop Loss:</b> ${sl_p:.2f} | <b>Take Profit:</b> ${tp_p:.2f}
             </p>
-            <p style="color: #2563eb; font-weight: bold;">Punct de profit real (după taxe): ${breakeven_p:.4f}</p>
-            <p style="font-size: 14px; color: #64748b;">Marja blocată în cont: £{marja_necesara_gbp:.2f}</p>
+            <p style="color: #2563eb; font-weight: bold;">⚠️ Nu închide înainte de: ${breakeven_p:.4f}</p>
         </div>
     """, unsafe_allow_html=True)
-else:
-    st.warning("Introdu un simbol valid pentru a începe.")
