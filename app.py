@@ -20,7 +20,7 @@ st.markdown("""
 @st.cache_data(ttl=300)
 def get_market_data(ticker, interval="15m"):
     df = yf.download(ticker, period="60d", interval=interval, progress=False)
-    if isinstance(df.columns, pd.MultiIndex): 
+    if not df.empty and isinstance(df.columns, pd.MultiIndex): 
         df.columns = df.columns.get_level_values(0)
     return df
 
@@ -75,7 +75,7 @@ with st.sidebar:
 df = get_market_data(ticker_input)
 curs_live = get_exchange_rate()
 
-if not df.empty:
+if not df.empty and len(df) > 200: # Ne asigurăm că avem destule date pentru EMA200
     close = df['Close']
     pret_acum = float(close.iloc[-1])
     
@@ -83,7 +83,7 @@ if not df.empty:
     df['EMA200'] = close.ewm(span=200, adjust=False).mean()
     df['RSI'] = calculate_rsi_wilder(close)
     
-    # MACD pentru scor
+    # MACD
     exp1 = close.ewm(span=12, adjust=False).mean()
     exp2 = close.ewm(span=26, adjust=False).mean()
     df['MACD'] = exp1 - exp2
@@ -93,27 +93,43 @@ if not df.empty:
     tr = pd.concat([df['High']-df['Low'], abs(df['High']-close.shift()), abs(df['Low']-close.shift())], axis=1).max(axis=1)
     atr = tr.rolling(window=14).mean().iloc[-1]
     
-    # SCOR PROBABILITATE
-    scor = 50
+    # --- NOUL SISTEM DE SCOR (Suma va fi mereu 100%) ---
+    # Calculăm un singur "Scor Bullish" (șansa ca prețul să urce)
+    scor_bullish = 50 
+    
     rsi_val = df['RSI'].iloc[-1]
     ema_val = df['EMA200'].iloc[-1]
     macd_val = df['MACD'].iloc[-1]
     sig_val = df['Signal'].iloc[-1]
 
-    if "BUY" in directie:
-        if pret_acum > ema_val: scor += 15
-        if rsi_val < 35: scor += 20
-        elif rsi_val > 70: scor -= 15
-        if macd_val > sig_val: scor += 15
-    else: # SHORT
-        if pret_acum < ema_val: scor += 15
-        if rsi_val > 65: scor += 20
-        elif rsi_val < 30: scor -= 15
-        if macd_val < sig_val: scor += 15
-    
-    probabilitate = max(10, min(95, scor))
+    # Trend (Cântărește cel mai mult)
+    if pret_acum > ema_val:
+        scor_bullish += 15
+    else:
+        scor_bullish -= 15
+        
+    # Momentum (RSI)
+    if rsi_val < 40: # Supravândut, șanse să urce
+        scor_bullish += 15
+    elif rsi_val > 60: # Supracumpărat, șanse să scadă
+        scor_bullish -= 15
+        
+    # MACD Crossover
+    if macd_val > sig_val:
+        scor_bullish += 20
+    else:
+        scor_bullish -= 20
 
-    # GESTIUNE CANTITATE
+    # Limităm scorul între 5% și 95% (nimic nu e sigur 100% pe bursă)
+    scor_bullish = max(5, min(95, scor_bullish))
+
+    # Atribuim probabilitatea în funcție de ce buton a apăsat utilizatorul
+    if "BUY" in directie:
+        probabilitate = scor_bullish
+    else:
+        probabilitate = 100 - scor_bullish
+
+    # --- GESTIUNE CANTITATE ---
     if mod_calcul == "Suma în £":
         cantitate = int((miza_valoare * levier * curs_live) / pret_acum)
         marja_gbp = miza_valoare
@@ -135,7 +151,12 @@ if not df.empty:
     # --- 5. AFIȘARE ---
     st.title(f"📊 {ticker_input} | Preț: ${pret_acum:.2f}")
     
-    # Afișare Probabilitate (Ceea ce lipsea)
+    # Culoarea barei se schimbă: verde pt probabilitate bună, roșu pt proastă
+    color_prog = "green" if probabilitate >= 50 else "red"
+    st.markdown(f"""
+        <style>.stProgress > div > div > div > div {{ background-color: {color_prog}; }}</style>
+    """, unsafe_allow_html=True)
+    
     st.subheader(f"Probabilitate de Succes: {probabilitate}%")
     st.progress(probabilitate / 100)
     
@@ -165,3 +186,5 @@ if not df.empty:
             <p style="color: #2563eb; font-weight: bold;">⚠️ Nu închide înainte de: ${breakeven_p:.4f}</p>
         </div>
     """, unsafe_allow_html=True)
+else:
+    st.error("Nu s-au găsit date suficiente pentru acest simbol. Asigură-te că simbolul este corect.")
